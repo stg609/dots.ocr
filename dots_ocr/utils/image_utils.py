@@ -9,6 +9,7 @@ from io import BytesIO
 import fitz
 import requests
 import copy
+import aiohttp
 
 
 def round_by_factor(number: int, factor: int) -> int:
@@ -50,16 +51,16 @@ def smart_resize(
     w_bar = max(factor, round_by_factor(width, factor))
     if h_bar * w_bar > max_pixels:
         beta = math.sqrt((height * width) / max_pixels)
-        h_bar = max(factor, floor_by_factor(height / beta, factor))
-        w_bar = max(factor, floor_by_factor(width / beta, factor))
+        h_bar = max(factor, floor_by_factor(int(height / beta), factor))
+        w_bar = max(factor, floor_by_factor(int(width / beta), factor))
     elif h_bar * w_bar < min_pixels:
         beta = math.sqrt(min_pixels / (height * width))
-        h_bar = ceil_by_factor(height * beta, factor)
-        w_bar = ceil_by_factor(width * beta, factor)
+        h_bar = ceil_by_factor(int(height * beta), factor)
+        w_bar = ceil_by_factor(int(width * beta), factor)
         if h_bar * w_bar > max_pixels:  # max_pixels first to control the token length 
             beta = math.sqrt((h_bar * w_bar) / max_pixels)
-            h_bar = max(factor, floor_by_factor(h_bar / beta, factor))
-            w_bar = max(factor, floor_by_factor(w_bar / beta, factor))
+            h_bar = max(factor, floor_by_factor(int(h_bar / beta), factor))
+            w_bar = max(factor, floor_by_factor(int(w_bar / beta), factor))
     return h_bar, w_bar
 
 
@@ -122,6 +123,70 @@ def fetch_image(
         assert resized_height>0 and resized_width>0, f"resized_height: {resized_height}, resized_width: {resized_width}, min_pixels: {min_pixels}, max_pixels:{max_pixels}, width: {width}, height:{height}, "
         image = image.resize((resized_width, resized_height))
     elif min_pixels or max_pixels:
+        width, height = image.size
+        if not min_pixels:
+            min_pixels = MIN_PIXELS
+        if not max_pixels:
+            max_pixels = MAX_PIXELS
+        resized_height, resized_width = smart_resize(
+            height,
+            width,
+            factor=IMAGE_FACTOR,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+        assert resized_height>0 and resized_width>0, f"resized_height: {resized_height}, resized_width: {resized_width}, min_pixels: {min_pixels}, max_pixels:{max_pixels}, width: {width}, height:{height}, "
+        image = image.resize((resized_width, resized_height))
+
+    return image
+
+async def afetch_image(
+        image, 
+        min_pixels=None,
+        max_pixels=None,
+        resized_height=None,
+        resized_width=None,
+    ) -> Image.Image:
+    assert image is not None, f"image not found, maybe input format error: {image}"
+    image_obj = None
+    if isinstance(image, Image.Image):
+        image_obj = image
+    elif image.startswith("http://") or image.startswith("https://"):
+        # 异步获取网络图片
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image) as response:
+                response.raise_for_status()
+                content = await response.read()
+                with BytesIO(content) as bio:
+                    image_obj = copy.deepcopy(Image.open(bio))
+    elif image.startswith("file://"):
+        image_obj = Image.open(image[7:])
+    elif image.startswith("data:image"):
+        if "base64," in image:
+            _, base64_data = image.split("base64,", 1)
+            data = base64.b64decode(base64_data)
+            # fix memory leak issue while using BytesIO
+            with BytesIO(data) as bio:
+                image_obj = copy.deepcopy(Image.open(bio))
+    else:
+        image_obj = Image.open(image)
+    if image_obj is None:
+        raise ValueError(f"Unrecognized image input, support local path, http url, base64 and PIL.Image, got {image}")
+    image = to_rgb(image_obj)
+    
+    ## resize
+    if resized_height and resized_width:
+        # 获取图像尺寸
+        width, height = image.size
+        resized_height, resized_width = smart_resize(
+            resized_height,
+            resized_width,
+            factor=IMAGE_FACTOR,
+        )
+        assert resized_height>0 and resized_width>0, f"resized_height: {resized_height}, resized_width: {resized_width}, min_pixels: {min_pixels}, max_pixels:{max_pixels}, width: {width}, height:{height}, "
+        image = image.resize((resized_width, resized_height))
+    elif min_pixels or max_pixels:
+        # 获取图像尺寸
         width, height = image.size
         if not min_pixels:
             min_pixels = MIN_PIXELS
