@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "charlie-dots-ocr"
-version = "0.0.1"
-description = "dots.ocr: Multilingual Document Layout Parsing in one Vision-Language Model"
+version = "0.0.3"
+description = "0.0.3 support aparser in async way. dots.ocr: Multilingual Document Layout Parsing in one Vision-Language Model"
 authors = []
 license = "MIT"
 readme = "README.md"

@@ -5,7 +5,7 @@ from multiprocessing.pool import ThreadPool, Pool
 import argparse
 
 
-from dots_ocr.model.inference import inference_with_vllm
+from dots_ocr.model.inference import ainference_with_vllm, inference_with_vllm
 from dots_ocr.utils.consts import image_extensions, MIN_PIXELS, MAX_PIXELS
 from dots_ocr.utils.image_utils import get_image_by_fitz_doc, fetch_image, smart_resize
 from dots_ocr.utils.doc_utils import fitz_doc_to_image, load_images_from_pdf
@@ -127,6 +127,19 @@ class DotsOCRParser:
         )
         return response
 
+    async def _ainference_with_vllm(self, image, prompt):
+        response = await ainference_with_vllm(
+            image,
+            prompt, 
+            model_name=self.model_name,
+            ip=self.ip,
+            port=self.port,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            max_completion_tokens=self.max_completion_tokens,
+        )
+        return response
+    
     def get_prompt(self, prompt_mode, bbox=None, origin_image=None, image=None, min_pixels=None, max_pixels=None):
         prompt = dict_promptmode_to_prompt[prompt_mode]
         if prompt_mode == 'prompt_grounding_ocr':
@@ -249,12 +262,130 @@ class DotsOCRParser:
 
         return result
     
+    async def _aparse_single_image(
+        self, 
+        origin_image, 
+        prompt_mode, 
+        save_dir, 
+        save_name, 
+        source="image", 
+        page_idx=0, 
+        bbox=None,
+        fitz_preprocess=False,
+        ):
+        min_pixels, max_pixels = self.min_pixels, self.max_pixels
+        if prompt_mode == "prompt_grounding_ocr":
+            min_pixels = min_pixels or MIN_PIXELS  # preprocess image to the final input
+            max_pixels = max_pixels or MAX_PIXELS
+        if min_pixels is not None: assert min_pixels >= MIN_PIXELS, f"min_pixels should >= {MIN_PIXELS}"
+        if max_pixels is not None: assert max_pixels <= MAX_PIXELS, f"max_pixels should <= {MAX_PIXELS}"
+
+        if source == 'image' and fitz_preprocess:
+            image = get_image_by_fitz_doc(origin_image, target_dpi=self.dpi)
+            image = fetch_image(image, min_pixels=min_pixels, max_pixels=max_pixels)
+        else:
+            image = fetch_image(origin_image, min_pixels=min_pixels, max_pixels=max_pixels)
+        input_height, input_width = smart_resize(image.height, image.width)
+        prompt = self.get_prompt(prompt_mode, bbox, origin_image, image, min_pixels=min_pixels, max_pixels=max_pixels)
+        if self.use_hf:
+            response = self._inference_with_hf(image, prompt)
+        else:
+            response = await self._ainference_with_vllm(image, prompt)
+        result = {'page_no': page_idx,
+            "input_height": input_height,
+            "input_width": input_width
+        }
+        if source == 'pdf':
+            save_name = f"{save_name}_page_{page_idx}"
+        if prompt_mode in ['prompt_layout_all_en', 'prompt_layout_only_en', 'prompt_grounding_ocr']:
+            cells, filtered = post_process_output(
+                response, 
+                prompt_mode, 
+                origin_image, 
+                image,
+                min_pixels=min_pixels, 
+                max_pixels=max_pixels,
+                )
+            if filtered and prompt_mode != 'prompt_layout_only_en':  # model output json failed, use filtered process
+                json_file_path = os.path.join(save_dir, f"{save_name}.json")
+                with open(json_file_path, 'w', encoding="utf-8") as w:
+                    json.dump(response, w, ensure_ascii=False)
+
+                image_layout_path = os.path.join(save_dir, f"{save_name}.jpg")
+                origin_image.save(image_layout_path)
+                result.update({
+                    'layout_info_path': json_file_path,
+                    'layout_image_path': image_layout_path,
+                })
+
+                md_file_path = os.path.join(save_dir, f"{save_name}.md")
+                with open(md_file_path, "w", encoding="utf-8") as md_file:
+                    md_file.write(cells)
+                result.update({
+                    'md_content_path': md_file_path
+                })
+                result.update({
+                    'filtered': True
+                })
+            else:
+                try:
+                    image_with_layout = draw_layout_on_image(origin_image, cells)
+                except Exception as e:
+                    print(f"Error drawing layout on image: {e}")
+                    image_with_layout = origin_image
+
+                json_file_path = os.path.join(save_dir, f"{save_name}.json")
+                with open(json_file_path, 'w', encoding="utf-8") as w:
+                    json.dump(cells, w, ensure_ascii=False)
+
+                image_layout_path = os.path.join(save_dir, f"{save_name}.jpg")
+                image_with_layout.save(image_layout_path)
+                result.update({
+                    'layout_info_path': json_file_path,
+                    'layout_image_path': image_layout_path,
+                })
+                if prompt_mode != "prompt_layout_only_en":  # no text md when detection only
+                    md_content = layoutjson2md(origin_image, cells, text_key='text')
+                    md_content_no_hf = layoutjson2md(origin_image, cells, text_key='text', no_page_hf=True) # used for clean output or metric of omnidocbench、olmbench 
+                    md_file_path = os.path.join(save_dir, f"{save_name}.md")
+                    with open(md_file_path, "w", encoding="utf-8") as md_file:
+                        md_file.write(md_content)
+                    md_nohf_file_path = os.path.join(save_dir, f"{save_name}_nohf.md")
+                    with open(md_nohf_file_path, "w", encoding="utf-8") as md_file:
+                        md_file.write(md_content_no_hf)
+                    result.update({
+                        'md_content_path': md_file_path,
+                        'md_content_nohf_path': md_nohf_file_path,
+                    })
+        else:
+            image_layout_path = os.path.join(save_dir, f"{save_name}.jpg")
+            origin_image.save(image_layout_path)
+            result.update({
+                'layout_image_path': image_layout_path,
+            })
+
+            md_content = response
+            md_file_path = os.path.join(save_dir, f"{save_name}.md")
+            with open(md_file_path, "w", encoding="utf-8") as md_file:
+                md_file.write(md_content)
+            result.update({
+                'md_content_path': md_file_path,
+            })
+
+        return result
+    
     def parse_image(self, input_path, filename, prompt_mode, save_dir, bbox=None, fitz_preprocess=False):
         origin_image = fetch_image(input_path)
         result = self._parse_single_image(origin_image, prompt_mode, save_dir, filename, source="image", bbox=bbox, fitz_preprocess=fitz_preprocess)
         result['file_path'] = input_path
         return [result]
         
+    async def aparse_image(self, input_path, filename, prompt_mode, save_dir, bbox=None, fitz_preprocess=False):
+        origin_image = fetch_image(input_path)
+        result = await self._aparse_single_image(origin_image, prompt_mode, save_dir, filename, source="image", bbox=bbox, fitz_preprocess=fitz_preprocess)
+        result['file_path'] = input_path
+        return [result] 
+           
     def parse_pdf(self, input_path, filename, prompt_mode, save_dir):
         print(f"loading pdf: {input_path}")
         images_origin = load_images_from_pdf(input_path, dpi=self.dpi)
