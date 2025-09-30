@@ -484,19 +484,6 @@ files = [
 ]
 
 [[package]]
-name = "einops"
-version = "0.8.1"
-description = "A new flavour of deep learning operations"
-optional = false
-python-versions = ">=3.8"
-groups = ["main"]
-markers = "platform_system != \"Windows\""
-files = [
-    {file = "einops-0.8.1-py3-none-any.whl", hash = "sha256:919387eb55330f5757c6bea9165c5ff5cfe63a642682ea788a6d472576d81737"},
-    {file = "einops-0.8.1.tar.gz", hash = "sha256:de5d960a7a761225532e0f1959e5315ebeafc0cd43394732f103ca44b9837e84"},
-]
-
-[[package]]
 name = "exceptiongroup"
 version = "1.3.0"
 description = "Backport of PEP 654 (exception groups)"
@@ -543,22 +530,6 @@ files = [
 mccabe = ">=0.7.0,<0.8.0"
 pycodestyle = ">=2.14.0,<2.15.0"
 pyflakes = ">=3.4.0,<3.5.0"
-
-[[package]]
-name = "flash-attn"
-version = "2.8.0.post2"
-description = "Flash Attention: Fast and Memory-Efficient Exact Attention"
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-markers = "platform_system != \"Windows\""
-files = [
-    {file = "flash_attn-2.8.0.post2.tar.gz", hash = "sha256:b51d7015eb78f7ab2c332ec7c36681d7e97834f010b52eb4db1f118351982f58"},
-]
-
-[package.dependencies]
-einops = "*"
-torch = "*"
 
 [[package]]
 name = "frozenlist"
@@ -2801,4 +2772,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "e1d0e967465f079059f9715f39406411fc4b8e3cc54397e47afcfae5492d963a"
+content-hash = "b6e37f17713e81c9b874dfe53d92ac1ee0ce11bf6eb747916a4b2212ac9e268e"
