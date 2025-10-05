@@ -1,11 +1,12 @@
 # 基础镜像
-FROM dots-vllm-openai:latest
+FROM stg609/dots-vllm-openai:v0.9.1
 
-# 拷贝模型到镜像中
+# 拷贝模型到镜像中 （不再需要，通过挂载方式使用模型）
 # COPY weights/DotsOCR /workspace/weights/DotsOCR
 
+
 # 设置环境变量
-ENV PYTHONPATH=/workspace/weights:$PYTHONPATH\
+ENV PYTHONPATH=/workspace/weights:\$PYTHONPATH\
     MODEL_NAME=dotsocr-model \
     GPU_MEMORY_UTILIZATION=0.8 \
     MAX_MODEL_LEN=8192

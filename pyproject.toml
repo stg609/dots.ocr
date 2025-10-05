@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "charlie-dots-ocr"
-version = "0.0.6"
-description = "0.0.6 remove accelerate. dots.ocr: Multilingual Document Layout Parsing in one Vision-Language Model"
+name = "stg609-dots-ocr"
+version = "0.0.1"
+description = "dots.ocr: Multilingual Document Layout Parsing in one Vision-Language Model"
 authors = []
 license = "MIT"
 readme = "README.md"
